@@ -51,6 +51,7 @@ async function init(): Promise<SQLite.SQLiteDatabase> {
       id TEXT PRIMARY KEY NOT NULL, item_id TEXT NOT NULL, bank_name TEXT, name TEXT NOT NULL, type TEXT NOT NULL,
       subtype TEXT, balance REAL NOT NULL DEFAULT 0, profit REAL, due_date TEXT, rate TEXT, updated_at TEXT
     );
+    CREATE TABLE IF NOT EXISTS account_alias (account_id TEXT PRIMARY KEY NOT NULL, bank_name TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS bill_manual (
       bill_id INTEGER NOT NULL, ym TEXT NOT NULL, paid INTEGER NOT NULL, PRIMARY KEY (bill_id, ym)
     );
@@ -142,6 +143,7 @@ export type Account = {
   close_date: string | null;
   due_date: string | null;
   updated_at: string | null;
+  custom_bank_name?: string | null; // nome que você escolheu (só na leitura)
 };
 
 export async function upsertAccount(a: Account): Promise<void> {
@@ -156,7 +158,21 @@ export async function upsertAccount(a: Account): Promise<void> {
 
 export async function listAccounts(): Promise<Account[]> {
   const db = await getDb();
-  return db.getAllAsync<Account>('SELECT * FROM accounts ORDER BY type, bank_name, name');
+  return db.getAllAsync<Account>(
+    `SELECT a.id, a.item_id, COALESCE(al.bank_name, a.bank_name) AS bank_name, a.type, a.subtype, a.name, a.number,
+       a.balance, a.credit_limit, a.available_limit, a.close_date, a.due_date, a.updated_at,
+       al.bank_name AS custom_bank_name
+     FROM accounts a LEFT JOIN account_alias al ON al.account_id = a.id
+     ORDER BY a.type, COALESCE(al.bank_name, a.bank_name), a.name`,
+  );
+}
+
+/** Nome do banco escolhido por você para uma conta. null = volta para o automático. */
+export async function setAccountBankName(accountId: string, name: string | null): Promise<void> {
+  const db = await getDb();
+  const v = name?.trim();
+  if (!v) await db.runAsync('DELETE FROM account_alias WHERE account_id = ?', [accountId]);
+  else await db.runAsync('INSERT OR REPLACE INTO account_alias (account_id, bank_name) VALUES (?, ?)', [accountId, v]);
 }
 
 export function accountLabel(a: Pick<Account, 'type' | 'name' | 'number' | 'bank_name'> & { subtype?: string | null }): string {
@@ -406,6 +422,6 @@ export async function wipeAll(): Promise<void> {
   const db = await getDb();
   await db.execAsync(`
     DELETE FROM transactions; DELETE FROM tx_meta; DELETE FROM accounts; DELETE FROM rules;
-    DELETE FROM bills; DELETE FROM bill_manual; DELETE FROM settings; DELETE FROM investments;
+    DELETE FROM bills; DELETE FROM bill_manual; DELETE FROM settings; DELETE FROM investments; DELETE FROM account_alias;
   `);
 }

@@ -3,14 +3,16 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Card, Empty, H2, RowDivider } from './ui';
+import BankNameModal from './BankNameModal';
 import { C } from '../theme';
 import { Account, accountLabel, getSetting, setSetting } from '../db';
 import { groupInvestments, Investment, subtypeLabel } from '../lib/investments';
 import { shortDate } from '../lib/dates';
 import { brl, pct } from '../lib/format';
 
-export default function MoneyToday({ accounts, investments }: { accounts: Account[]; investments: Investment[] }) {
+export default function MoneyToday({ accounts, investments, onChanged }: { accounts: Account[]; investments: Investment[]; onChanged: () => void }) {
   const [hidden, setHidden] = useState(false);
+  const [editing, setEditing] = useState<Account | null>(null);
   const [open, setOpen] = useState<string | null>(null);
 
   useEffect(() => { getSetting('hide_balances').then((v) => setHidden(v === '1')); }, []);
@@ -52,13 +54,20 @@ export default function MoneyToday({ accounts, investments }: { accounts: Accoun
         </Text>
       </View>
 
+      <BankNameModal account={editing} onClose={() => setEditing(null)} onSaved={onChanged} />
+
       <H2>Saldo em cada conta</H2>
       {banks.length ? (
         <Card pad={false}>
           {banks.map((a, i) => (
             <View key={a.id}>
               {i > 0 ? <RowDivider /> : null}
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 14 }}>
+              <Pressable
+                onPress={() => setEditing(a)}
+                accessibilityRole="button"
+                accessibilityHint="Trocar o nome do banco"
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 14 }}
+              >
                 <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: C.track, alignItems: 'center', justifyContent: 'center' }}>
                   <Ionicons name={a.subtype === 'SAVINGS_ACCOUNT' ? 'wallet-outline' : 'business-outline'} size={20} color={C.teal} />
                 </View>
@@ -69,11 +78,16 @@ export default function MoneyToday({ accounts, investments }: { accounts: Accoun
                 <Text style={{ fontSize: 15, fontWeight: '800', color: (a.balance ?? 0) < 0 ? C.danger : C.ink }}>
                   {a.balance === null ? '—' : money(a.balance)}
                 </Text>
-              </View>
+              </Pressable>
             </View>
           ))}
         </Card>
       ) : <Empty text="Nenhuma conta corrente ou poupança veio dos bancos." />}
+      {banks.length ? (
+        <Text style={{ fontSize: 11, color: C.muted, marginTop: -10, paddingLeft: 4 }}>
+          Nome do banco errado? Toque na conta para trocar.
+        </Text>
+      ) : null}
 
       <H2>Investimentos</H2>
       {groups.length ? (

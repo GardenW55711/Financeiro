@@ -5,7 +5,9 @@ import { Bar, Card, Dot, Empty, H2, Loading, MonthNav, RowDivider, Screen } from
 import { C } from '../theme';
 import { useNav } from '../navigation';
 import { loadMonth, MonthData } from '../data';
-import { accountLabel } from '../db';
+import { Account, accountLabel } from '../db';
+import BankNameModal from '../components/BankNameModal';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { ddmm, shortDate, todayYmd, ymKey, ymOf, YM } from '../lib/dates';
 import { groupByCategory, isSpending, sum } from '../lib/analysis';
 import { brl, pct } from '../lib/format';
@@ -14,6 +16,7 @@ export default function AccountsScreen() {
   const nav = useNav();
   const [ym, setYm] = useState<YM>(() => ymOf(todayYmd()));
   const [data, setData] = useState<MonthData | null>(null);
+  const [editing, setEditing] = useState<Account | null>(null);
   const load = useCallback(async () => setData(await loadMonth(ym)), [ym]);
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
@@ -28,6 +31,7 @@ export default function AccountsScreen() {
         Tudo que vem dos bancos conectados, separado por onde saiu. Os gastos do mês abaixo consideram o mês selecionado.
       </Text>
       <MonthNav ym={ym} onChange={setYm} />
+      <BankNameModal account={editing} onClose={() => setEditing(null)} onSaved={load} />
       {data.accounts.length === 0 ? <Empty text="Nenhum banco sincronizado ainda. Configure a Pluggy em Ajustes." /> : null}
 
       {cards.map((a) => {
@@ -38,10 +42,12 @@ export default function AccountsScreen() {
         return (
           <View key={a.id} style={{ gap: 12 }}>
             <View style={{ backgroundColor: C.teal, borderRadius: 22, padding: 20, gap: 14 }}>
-              <View style={{ gap: 2 }}>
-                <Text style={{ fontSize: 13, fontWeight: '600', color: C.tealSoft }}>{a.bank_name ?? 'Cartão'} · {a.name}</Text>
+              <Pressable onPress={() => setEditing(a)} accessibilityHint="Trocar o nome do banco" style={{ gap: 2 }}>
+                <Text style={{ fontSize: 13, fontWeight: '600', color: C.tealSoft }}>
+                  {a.bank_name ?? 'Cartão'} · {a.name}  <Ionicons name="pencil" size={12} color={C.tealSoft} />
+                </Text>
                 <Text style={{ fontSize: 18, fontWeight: '800', color: '#fff', letterSpacing: 1 }}>{accountLabel(a)}</Text>
-              </View>
+              </Pressable>
               <View style={{ gap: 4 }}>
                 <Text style={{ fontSize: 13, color: C.tealSoft, fontWeight: '600' }}>Fatura atual</Text>
                 <Text style={{ fontSize: 30, fontWeight: '800', color: '#fff' }}>{brl(Math.abs(a.balance ?? 0))}</Text>
@@ -94,10 +100,12 @@ export default function AccountsScreen() {
         const out = txs.filter((t) => t.type === 'DEBIT').reduce((s, t) => s + Math.abs(t.amount), 0);
         return (
           <Card key={a.id} style={{ gap: 14 }}>
-            <View>
-              <Text style={{ fontSize: 15, fontWeight: '800', color: C.ink }}>{a.bank_name ?? 'Banco'} · {accountLabel(a)}</Text>
+            <Pressable onPress={() => setEditing(a)} accessibilityHint="Trocar o nome do banco">
+              <Text style={{ fontSize: 15, fontWeight: '800', color: C.ink }}>
+                {a.bank_name ?? 'Banco'} · {accountLabel(a)}  <Ionicons name="pencil" size={13} color={C.faint} />
+              </Text>
               <Text style={{ fontSize: 12, color: C.muted }}>{a.name}{a.updated_at ? ` · atualizado ${ddmm(a.updated_at.slice(0, 10))}` : ''}</Text>
-            </View>
+            </Pressable>
             <View style={{ flexDirection: 'row', gap: 8 }}>
               <Stat label="Saldo" value={brl(a.balance ?? 0)} />
               <Stat label="Entrou no mês" value={brl(income)} color={C.green} />

@@ -101,3 +101,17 @@ test('investimentos: valor, taxa e agrupamento', () => {
   assert.equal(g[0].label, 'Renda fixa');
   assert.equal(g[1].total, 300);
 });
+
+import { bankFromCode, bankOfAccount, bankOfInvestment } from '../src/lib/banks';
+
+test('nome do banco por trás do MeuPluggy', () => {
+  assert.equal(bankFromCode('0341'), 'Itaú');
+  assert.equal(bankFromCode('260'), 'Nubank');
+  assert.equal(bankOfAccount({ bankData: { transferNumber: '0341/1234/56789-0' }, name: 'Conta Corrente' }, 'MeuPluggy'), 'Itaú');
+  assert.equal(bankOfAccount({ name: 'Nubank Ultravioleta', type: 'CREDIT' }, 'MeuPluggy'), 'Nubank');
+  assert.equal(bankOfAccount({ name: 'NU PAGAMENTOS S.A.' }, 'MeuPluggy'), 'Nubank');
+  assert.equal(bankOfAccount({ name: 'Conta' }, 'Itaú'), 'Itaú');
+  assert.equal(bankOfAccount({ name: 'Conta Pessoal' }, 'MeuPluggy'), 'Conta Pessoal');
+  assert.equal(bankOfInvestment({ institution: { name: 'XP INVESTIMENTOS CCTVM S/A', number: '102' }, issuer: 'Banco Master' }, 'MeuPluggy'), 'XP');
+  assert.equal(bankOfAccount({ name: 'Caixinha Viagem' }, 'MeuPluggy'), 'Caixinha Viagem');
+});

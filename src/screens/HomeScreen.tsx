@@ -112,7 +112,7 @@ export default function HomeScreen() {
         />
       ) : null}
 
-      <MoneyToday accounts={data.accounts} investments={data.investments} />
+      <MoneyToday accounts={data.accounts} investments={data.investments} onChanged={load} />
 
       <MonthNav ym={ym} onChange={setYm} />
 

@@ -4,6 +4,7 @@
 import * as SecureStore from 'expo-secure-store';
 import { getItemIds, getSetting, replaceInvestments, setSetting, upsertAccount, upsertTransactions, TxBase } from './db';
 import { Investment, mapInvestment } from './lib/investments';
+import { bankOfAccount, bankOfInvestment } from './lib/banks';
 import { addDays, todayYmd } from './lib/dates';
 
 const BASE = 'https://api.pluggy.ai';
@@ -115,7 +116,7 @@ async function fetchInvestments(itemId: string, bankName: string, apiKey: string
       const data: { results: any[]; totalPages: number } = await get(
         `/investments?itemId=${itemId}&pageSize=500&page=${page}`, apiKey);
       for (const raw of data.results || []) {
-        const inv = mapInvestment(raw, itemId, bankName, now);
+        const inv = mapInvestment(raw, itemId, bankOfInvestment(raw, bankName), now);
         if (inv) out.push(inv);
       }
       totalPages = data.totalPages || 1;
@@ -168,7 +169,7 @@ export async function syncAll(): Promise<SyncResult> {
       await upsertAccount({
         id: String(a.id),
         item_id: itemId,
-        bank_name: bankName,
+        bank_name: bankOfAccount(a, bankName),
         type: a.type === 'CREDIT' ? 'CREDIT' : 'BANK',
         subtype: a.subtype ?? null,
         name: a.marketingName || a.name || 'Conta',
