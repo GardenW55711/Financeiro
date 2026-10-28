@@ -18,6 +18,11 @@ import BillEditScreen from './src/screens/BillEditScreen';
 import CalendarScreen from './src/screens/CalendarScreen';
 import AccountsScreen from './src/screens/AccountsScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
+import InvestmentsScreen from './src/screens/InvestmentsScreen';
+import AssetScreen from './src/screens/AssetScreen';
+import GuideScreen from './src/screens/GuideScreen';
+import CalculatorsScreen from './src/screens/CalculatorsScreen';
+import InvestmentEditScreen from './src/screens/InvestmentEditScreen';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const Tab = createBottomTabNavigator<TabParamList>();
@@ -26,6 +31,7 @@ const theme = { ...DefaultTheme, colors: { ...DefaultTheme.colors, background: C
 
 const ICONS: Record<keyof TabParamList, [keyof typeof Ionicons.glyphMap, keyof typeof Ionicons.glyphMap]> = {
   Inicio: ['home', 'home-outline'],
+  Carteira: ['pie-chart', 'pie-chart-outline'],
   Lancamentos: ['list', 'list-outline'],
   ContasFixas: ['receipt', 'receipt-outline'],
   Calendario: ['calendar', 'calendar-outline'],
@@ -39,13 +45,14 @@ function Tabs() {
         headerShown: false,
         tabBarActiveTintColor: C.green,
         tabBarInactiveTintColor: C.muted,
-        tabBarLabelStyle: { fontSize: 11, fontWeight: '700' },
+        tabBarLabelStyle: { fontSize: 10, fontWeight: '700' },
         tabBarIcon: ({ focused, color, size }) => (
           <Ionicons name={ICONS[route.name][focused ? 0 : 1]} size={size} color={color} />
         ),
       })}
     >
       <Tab.Screen name="Inicio" component={HomeScreen} options={{ title: 'Início' }} />
+      <Tab.Screen name="Carteira" component={InvestmentsScreen} options={{ title: 'Carteira' }} />
       <Tab.Screen name="Lancamentos" component={TransactionsScreen} options={{ title: 'Lançamentos' }} />
       <Tab.Screen name="ContasFixas" component={BillsScreen} options={{ title: 'Contas fixas' }} />
       <Tab.Screen name="Calendario" component={CalendarScreen} options={{ title: 'Calendário' }} />
@@ -89,6 +96,10 @@ export default function App() {
           <Stack.Screen name="Detalhe" component={TransactionDetailScreen} options={{ title: 'Lançamento' }} />
           <Stack.Screen name="ContaFixa" component={BillEditScreen} options={{ title: 'Conta fixa' }} />
           <Stack.Screen name="Bancos" component={AccountsScreen} options={{ title: 'Bancos e cartões' }} />
+          <Stack.Screen name="Ativo" component={AssetScreen} options={{ title: 'Investimento' }} />
+          <Stack.Screen name="Guia" component={GuideScreen} options={{ title: 'Guia de análise' }} />
+          <Stack.Screen name="Calculadoras" component={CalculatorsScreen} options={{ title: 'Calculadoras' }} />
+          <Stack.Screen name="Investimento" component={InvestmentEditScreen} options={{ title: 'Novo investimento' }} />
         </Stack.Navigator>
       </NavigationContainer>
     </SafeAreaProvider>

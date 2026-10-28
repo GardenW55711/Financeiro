@@ -14,6 +14,16 @@ export type Investment = {
   due_date: string | null; // vencimento (renda fixa)
   rate: string | null; // ex.: "100% CDI" ou "12,5% a.a."
   updated_at: string | null;
+  // Campos extras (podem vir vazios, depende do banco)
+  code: string | null; // código na bolsa (ex.: PETR4, MXRF11) ou do título
+  quantity: number | null; // quantas cotas/ações
+  invested: number | null; // quanto você aplicou (valor original)
+  rate_12m: number | null; // rentabilidade dos últimos 12 meses, em % (ex.: 11.2)
+  rate_month: number | null; // rentabilidade do último mês, em %
+  purchase_date: string | null; // data da aplicação
+  issuer: string | null; // quem emitiu (ex.: banco do CDB)
+  index_type: string | null; // CDI, IPCA, SELIC, PRE...
+  source: string; // 'pluggy' ou 'manual'
 };
 
 const TYPE_LABEL: Record<string, string> = {
@@ -69,7 +79,26 @@ export function mapInvestment(raw: any, itemId: string, bankName: string, now: s
     due_date: raw?.dueDate ? String(raw.dueDate).slice(0, 10) : null,
     rate,
     updated_at: now,
+    code: raw?.code ? String(raw.code).trim().toUpperCase() : null,
+    quantity: num(raw?.quantity),
+    invested: num(raw?.amountOriginal),
+    rate_12m: pctNum(raw?.lastTwelveMonthsRate, 0.4),
+    rate_month: pctNum(raw?.lastMonthRate, 0.05),
+    purchase_date: raw?.purchaseDate ? String(raw.purchaseDate).slice(0, 10) : raw?.issueDate ? String(raw.issueDate).slice(0, 10) : null,
+    issuer: raw?.issuer ?? null,
+    index_type: raw?.rateType ? String(raw.rateType).toUpperCase() : null,
+    source: 'pluggy',
   };
+}
+
+/**
+ * A taxa pode vir como fração (0,112) ou como porcentagem (11,2) para 11,2%.
+ * Abaixo de `fractionLimit` entende como fração. Padroniza para porcentagem.
+ */
+function pctNum(v: unknown, fractionLimit: number): number | null {
+  const n = num(v);
+  if (n === null) return null;
+  return Math.abs(n) < fractionLimit ? n * 100 : n;
 }
 
 function fmt(n: number): string {

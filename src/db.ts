@@ -56,6 +56,16 @@ async function init(): Promise<SQLite.SQLiteDatabase> {
       bill_id INTEGER NOT NULL, ym TEXT NOT NULL, paid INTEGER NOT NULL, PRIMARY KEY (bill_id, ym)
     );
   `);
+  // Colunas novas dos investimentos (para quem já tinha o app instalado)
+  const cols = await db.getAllAsync<{ name: string }>('PRAGMA table_info(investments)');
+  const have = new Set(cols.map((c) => c.name));
+  const extra: [string, string][] = [
+    ['code', 'TEXT'], ['quantity', 'REAL'], ['invested', 'REAL'], ['rate_12m', 'REAL'], ['rate_month', 'REAL'],
+    ['purchase_date', 'TEXT'], ['issuer', 'TEXT'], ['index_type', 'TEXT'], ['source', "TEXT NOT NULL DEFAULT 'pluggy'"],
+  ];
+  for (const [c, t] of extra) if (!have.has(c)) await db.execAsync(`ALTER TABLE investments ADD COLUMN ${c} ${t}`);
+  await db.execAsync('CREATE TABLE IF NOT EXISTS market_cache (symbol TEXT PRIMARY KEY NOT NULL, json TEXT NOT NULL, fetched_at TEXT NOT NULL)');
+
   const row = await db.getFirstAsync<{ n: number }>('SELECT COUNT(*) AS n FROM categories');
   if (!row || row.n === 0) {
     for (const c of DEFAULT_CATEGORIES) {
@@ -190,14 +200,46 @@ export async function replaceInvestments(itemId: string, list: Investment[]): Pr
   const db = await getDb();
   await db.withTransactionAsync(async () => {
     await db.runAsync('DELETE FROM investments WHERE item_id = ?', [itemId]);
-    for (const i of list) {
-      await db.runAsync(
-        `INSERT OR REPLACE INTO investments (id, item_id, bank_name, name, type, subtype, balance, profit, due_date, rate, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [i.id, i.item_id, i.bank_name, i.name, i.type, i.subtype, i.balance, i.profit, i.due_date, i.rate, i.updated_at],
-      );
-    }
+    for (const i of list) await insertInvestment(db, i);
   });
+}
+
+async function insertInvestment(db: SQLite.SQLiteDatabase, i: Investment): Promise<void> {
+  await db.runAsync(
+    `INSERT OR REPLACE INTO investments (id, item_id, bank_name, name, type, subtype, balance, profit, due_date, rate, updated_at,
+      code, quantity, invested, rate_12m, rate_month, purchase_date, issuer, index_type, source)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [i.id, i.item_id, i.bank_name, i.name, i.type, i.subtype, i.balance, i.profit, i.due_date, i.rate, i.updated_at,
+      i.code, i.quantity, i.invested, i.rate_12m, i.rate_month, i.purchase_date, i.issuer, i.index_type, i.source],
+  );
+}
+
+/** Investimento lançado à mão (fica guardado mesmo depois de sincronizar). */
+export async function saveManualInvestment(i: Investment): Promise<void> {
+  const db = await getDb();
+  await insertInvestment(db, { ...i, item_id: 'manual', source: 'manual' });
+}
+
+export async function deleteInvestment(id: string): Promise<void> {
+  const db = await getDb();
+  await db.runAsync('DELETE FROM investments WHERE id = ?', [id]);
+}
+
+export async function getInvestment(id: string): Promise<Investment | null> {
+  const db = await getDb();
+  return db.getFirstAsync<Investment>('SELECT * FROM investments WHERE id = ?', [id]);
+}
+
+// ---------- Cache de cotações (para não consultar a toda hora) ----------
+
+export async function getMarketCache(symbol: string): Promise<{ json: string; fetched_at: string } | null> {
+  const db = await getDb();
+  return db.getFirstAsync<{ json: string; fetched_at: string }>('SELECT json, fetched_at FROM market_cache WHERE symbol = ?', [symbol]);
+}
+
+export async function setMarketCache(symbol: string, json: string): Promise<void> {
+  const db = await getDb();
+  await db.runAsync('INSERT OR REPLACE INTO market_cache (symbol, json, fetched_at) VALUES (?, ?, ?)', [symbol, json, new Date().toISOString()]);
 }
 
 export async function listInvestments(): Promise<Investment[]> {
@@ -422,6 +464,6 @@ export async function wipeAll(): Promise<void> {
   const db = await getDb();
   await db.execAsync(`
     DELETE FROM transactions; DELETE FROM tx_meta; DELETE FROM accounts; DELETE FROM rules;
-    DELETE FROM bills; DELETE FROM bill_manual; DELETE FROM settings; DELETE FROM investments; DELETE FROM account_alias;
+    DELETE FROM bills; DELETE FROM bill_manual; DELETE FROM settings; DELETE FROM investments; DELETE FROM account_alias; DELETE FROM market_cache;
   `);
 }

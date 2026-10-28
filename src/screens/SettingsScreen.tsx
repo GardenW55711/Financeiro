@@ -13,6 +13,7 @@ import { Category, CATEGORY_COLORS, DEFAULT_CATEGORIES, Rule } from '../lib/cate
 import { addMonths, shortDate, todayYmd, ymOf } from '../lib/dates';
 import { day20Payment, fifthBusinessDay, PaySettings } from '../lib/paydays';
 import { checkForUpdate, currentVersion, downloadAndInstall } from '../updater';
+import { getBrapiToken, getQuote, setBrapiToken } from '../market';
 
 export default function SettingsScreen() {
   const [loaded, setLoaded] = useState(false);
@@ -29,6 +30,9 @@ export default function SettingsScreen() {
   const [syncing, setSyncing] = useState(false);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [checking, setChecking] = useState(false);
+  const [brapi, setBrapi] = useState('');
+  const [brapiSaved, setBrapiSaved] = useState(false);
+  const [testingBrapi, setTestingBrapi] = useState(false);
 
   const load = useCallback(async () => {
     const [id, hs, it, ps, cs, rs, w] = await Promise.all([
@@ -41,6 +45,7 @@ export default function SettingsScreen() {
     setCats(cs);
     setRules(rs);
     try { setWarnings(w ? JSON.parse(w) : []); } catch { setWarnings([]); }
+    setBrapiSaved(!!(await getBrapiToken()));
     setLoaded(true);
   }, []);
   useFocusEffect(useCallback(() => { load(); }, [load]));
@@ -88,6 +93,22 @@ export default function SettingsScreen() {
       Alert.alert('Não deu para sincronizar', String(e?.message ?? e));
     } finally {
       setSyncing(false);
+    }
+  };
+
+  const saveBrapi = async () => {
+    if (!brapi.trim()) return Alert.alert('Cole o token da brapi primeiro');
+    setTestingBrapi(true);
+    try {
+      await setBrapiToken(brapi);
+      const q = await getQuote('PETR4', { force: true });
+      setBrapi('');
+      setBrapiSaved(true);
+      Alert.alert('Tudo certo!', q?.price ? `Teste: PETR4 a R$ ${q.price.toFixed(2).replace('.', ',')}.` : 'Token salvo.');
+    } catch (e: any) {
+      Alert.alert('Não deu certo', String(e?.message ?? e));
+    } finally {
+      setTestingBrapi(false);
     }
   };
 
@@ -199,6 +220,28 @@ export default function SettingsScreen() {
         <PrimaryButton title="Testar e sincronizar agora" onPress={sync} loading={syncing} />
       </Card>
       {warnings.map((w) => <Notice key={w} title="Atenção" text={w} />)}
+
+      <H2>Dados da bolsa (brapi)</H2>
+      <Card style={{ gap: 12 }}>
+        <Text style={ui.hint}>
+          Opcional. Com um token grátis da brapi, a aba Carteira mostra preço, P/L, P/VP, dividendos e preço justo das suas ações e FIIs.
+          Crie a conta em brapi.dev, copie o token no painel e cole aqui. Ele fica guardado no cofre do celular.
+        </Text>
+        <Field
+          label="Token da brapi"
+          value={brapi}
+          onChangeText={setBrapi}
+          autoCapitalize="none"
+          autoCorrect={false}
+          secureTextEntry
+          placeholder={brapiSaved ? 'Já salvo (cole outro para trocar)' : 'Cole aqui o token'}
+        />
+        <PrimaryButton title="Salvar e testar" onPress={saveBrapi} loading={testingBrapi} />
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+          <TextButton title="Abrir brapi.dev" onPress={() => Linking.openURL('https://brapi.dev/dashboard')} color={C.green} />
+          {brapiSaved ? <TextButton title="Remover token" color={C.danger} onPress={async () => { await setBrapiToken(null); setBrapiSaved(false); }} /> : null}
+        </View>
+      </Card>
 
       <H2>Categorias</H2>
       <Card style={{ gap: 12 }}>

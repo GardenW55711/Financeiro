@@ -115,3 +115,56 @@ test('nome do banco por trás do MeuPluggy', () => {
   assert.equal(bankOfInvestment({ institution: { name: 'XP INVESTIMENTOS CCTVM S/A', number: '102' }, issuer: 'Banco Master' }, 'MeuPluggy'), 'XP');
   assert.equal(bankOfAccount({ name: 'Caixinha Viagem' }, 'MeuPluggy'), 'Caixinha Viagem');
 });
+
+import { bazinPrice, estimatedIr, grahamPrice, grossEquivalent, irRate, portfolioAlerts, realReturn, safetyMargin, summarize, sumDividends12m, upcomingMaturities } from '../src/lib/portfolio';
+import { readFii, readStock } from '../src/lib/indicators';
+import { Investment } from '../src/lib/investments';
+
+function inv(p: Partial<Investment>): Investment {
+  return {
+    id: Math.random().toString(36), item_id: 'i', bank_name: 'XP', name: 'X', type: 'FIXED_INCOME', subtype: 'CDB', balance: 1000,
+    profit: null, due_date: null, rate: null, updated_at: null, code: null, quantity: null, invested: null, rate_12m: null,
+    rate_month: null, purchase_date: null, issuer: null, index_type: null, source: 'pluggy', ...p,
+  };
+}
+
+test('carteira: resumo, divisão e vencimentos', () => {
+  const list = [
+    inv({ name: 'CDB A', balance: 6000, invested: 5000, index_type: 'CDI', due_date: '2027-03-01' }),
+    inv({ name: 'ITUB4', type: 'EQUITY', subtype: 'STOCK', code: 'ITUB4', balance: 3000, invested: 2500, bank_name: 'Nubank' }),
+    inv({ name: 'Fundo Imobiliário Y', type: 'EQUITY', subtype: 'REAL_ESTATE_FUND', code: 'MXRF11', balance: 1000, invested: 1000 }),
+  ];
+  const s = summarize(list, '2026-10-28');
+  assert.equal(s.total, 10000);
+  assert.equal(s.invested, 8500);
+  assert.equal(s.profit, 1500);
+  assert.equal(Math.round(s.profitPct! * 10) / 10, 17.6);
+  assert.deepEqual(s.byClass.map((x) => x.label), ['Renda fixa', 'Ação', 'FII']);
+  assert.equal(s.byInstitution[0].label, 'XP');
+  assert.equal(upcomingMaturities(list, '2026-10-28')[0].days, 124);
+  const alerts = portfolioAlerts(list, s, 14);
+  assert.ok(alerts.some((a) => a.title.includes('concentrado')));
+});
+
+test('imposto e comparações', () => {
+  assert.equal(irRate(100), 22.5);
+  assert.equal(irRate(400), 17.5);
+  assert.equal(irRate(800), 15);
+  const ir = estimatedIr(inv({ balance: 1100, invested: 1000, purchase_date: '2025-09-01' }), '2026-10-28');
+  assert.equal(ir!.rate, 17.5);
+  assert.equal(Math.round(ir!.value * 100) / 100, 17.5);
+  assert.equal(estimatedIr(inv({ subtype: 'LCI', purchase_date: '2026-01-01', invested: 1 }), '2026-10-28')!.rate, 0);
+  assert.equal(Math.round(grossEquivalent(90, 721) * 10) / 10, 105.9);
+  assert.equal(Math.round(realReturn(10, 5) * 100) / 100, 4.76);
+});
+
+test('preço justo e indicadores', () => {
+  assert.equal(Math.round(grahamPrice(4, 25)! * 100) / 100, 47.43);
+  assert.equal(grahamPrice(-1, 25), null);
+  assert.equal(bazinPrice(1.2, 6), 20);
+  assert.equal(safetyMargin(20, 15), 25);
+  assert.equal(sumDividends12m([{ date: '2026-09-01', value: 0.1 }, { date: '2025-01-01', value: 5 }], new Date('2026-10-28')), 0.1);
+  const q = { price: 30, pl: 8, pvp: 1.2, dy: 7, roe: 20, netMargin: 15, debtToEquity: 0.4, evEbitda: 5, lpa: 3.75, vpa: 25, dividends12m: 2.1 };
+  assert.ok(readStock(q).every((r) => r.verdict === 'bom'));
+  assert.equal(readFii({ ...q, pvp: 1.4 }, 14).find((r) => r.key === 'pvp')!.verdict, 'atencao');
+});

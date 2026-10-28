@@ -4,6 +4,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 export type TabParamList = {
   Inicio: undefined;
+  Carteira: undefined;
   Lancamentos: { categoryId?: string; accountId?: string; ym?: string } | undefined;
   ContasFixas: undefined;
   Calendario: undefined;
@@ -15,6 +16,10 @@ export type RootStackParamList = {
   Detalhe: { id?: string };
   ContaFixa: { id?: number };
   Bancos: undefined;
+  Ativo: { id?: string; symbol?: string };
+  Guia: { section?: string } | undefined;
+  Calculadoras: { tool?: string; lpa?: number; vpa?: number; div12m?: number; price?: number } | undefined;
+  Investimento: { id?: string } | undefined;
 };
 
 export function useNav() {

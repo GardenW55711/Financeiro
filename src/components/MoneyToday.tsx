@@ -4,6 +4,8 @@ import { Pressable, Text, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Card, Empty, H2, RowDivider } from './ui';
 import BankNameModal from './BankNameModal';
+import { LinkText } from './ui';
+import { useNav } from '../navigation';
 import { C } from '../theme';
 import { Account, accountLabel, getSetting, setSetting } from '../db';
 import { groupInvestments, Investment, subtypeLabel } from '../lib/investments';
@@ -13,6 +15,7 @@ import { brl, pct } from '../lib/format';
 export default function MoneyToday({ accounts, investments, onChanged }: { accounts: Account[]; investments: Investment[]; onChanged: () => void }) {
   const [hidden, setHidden] = useState(false);
   const [editing, setEditing] = useState<Account | null>(null);
+  const nav = useNav();
   const [open, setOpen] = useState<string | null>(null);
 
   useEffect(() => { getSetting('hide_balances').then((v) => setHidden(v === '1')); }, []);
@@ -89,7 +92,7 @@ export default function MoneyToday({ accounts, investments, onChanged }: { accou
         </Text>
       ) : null}
 
-      <H2>Investimentos</H2>
+      <H2 right={<LinkText title="Ver análise" onPress={() => nav.navigate('Tabs', { screen: 'Carteira' })} />}>Investimentos</H2>
       {groups.length ? (
         <Card pad={false}>
           {profit !== null ? (
