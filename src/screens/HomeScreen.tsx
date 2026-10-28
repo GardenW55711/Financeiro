@@ -5,6 +5,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { Bar, Card, Dot, Empty, H2, IconButton, LinkText, Loading, MonthNav, Notice, Pill, pw, RowDivider, Screen, Segmented } from '../components/ui';
 import { C } from '../theme';
 import UpdateBanner from '../components/UpdateBanner';
+import MoneyToday from '../components/MoneyToday';
 import { useNav } from '../navigation';
 import { billsForMonth, loadMonth, MonthData } from '../data';
 import { accountLabel, getPaySettings, getSetting } from '../db';
@@ -45,7 +46,7 @@ export default function HomeScreen() {
     try {
       const r = await syncAll();
       const extra = r.warnings.length ? `\n\n${r.warnings.join('\n')}` : '';
-      Alert.alert('Sincronizado', `${r.accounts} conta(s) lidas, ${r.newTx} lançamento(s) novo(s).${extra}`);
+      Alert.alert('Sincronizado', `${r.accounts} conta(s) lidas, ${r.newTx} lançamento(s) novo(s), ${r.investments} investimento(s).${extra}`);
       await load();
     } catch (e: any) {
       Alert.alert('Não deu para sincronizar', String(e?.message ?? e));
@@ -110,6 +111,8 @@ export default function HomeScreen() {
           onPress={() => nav.navigate('Tabs', { screen: 'Ajustes' })}
         />
       ) : null}
+
+      <MoneyToday accounts={data.accounts} investments={data.investments} />
 
       <MonthNav ym={ym} onChange={setYm} />
 

@@ -85,3 +85,19 @@ test('comparar versões', () => {
   assert.ok(compareVersions('v1.0.3', '1.0.3') === 0);
   assert.ok(compareVersions('1.0.2', '1.0.10') < 0);
 });
+
+import { groupInvestments, mapInvestment } from '../src/lib/investments';
+
+test('investimentos: valor, taxa e agrupamento', () => {
+  const now = '2026-10-28T00:00:00Z';
+  const cdb = mapInvestment({ id: 'a', name: 'CDB Banco X', type: 'FIXED_INCOME', subtype: 'CDB', balance: 1500.5, rate: 110, rateType: 'CDI', amountProfit: 50, dueDate: '2028-01-10T00:00:00Z', status: 'ACTIVE' }, 'i1', 'Nubank', now)!;
+  assert.equal(cdb.balance, 1500.5);
+  assert.equal(cdb.rate, '110% do CDI');
+  assert.equal(cdb.due_date, '2028-01-10');
+  const fundo = mapInvestment({ id: 'b', name: 'Fundo Y', type: 'MUTUAL_FUND', value: 10, quantity: 30 }, 'i1', 'Inter', now)!;
+  assert.equal(fundo.balance, 300);
+  assert.equal(mapInvestment({ id: 'c', type: 'EQUITY', balance: 9, status: 'TOTAL_WITHDRAWAL' }, 'i1', 'X', now), null);
+  const g = groupInvestments([fundo, cdb]);
+  assert.equal(g[0].label, 'Renda fixa');
+  assert.equal(g[1].total, 300);
+});

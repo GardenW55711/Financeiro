@@ -2,7 +2,8 @@
 // As chaves ficam no "cofre" do celular (SecureStore) e nunca no código.
 
 import * as SecureStore from 'expo-secure-store';
-import { getItemIds, getSetting, setSetting, upsertAccount, upsertTransactions, TxBase } from './db';
+import { getItemIds, getSetting, replaceInvestments, setSetting, upsertAccount, upsertTransactions, TxBase } from './db';
+import { Investment, mapInvestment } from './lib/investments';
 import { addDays, todayYmd } from './lib/dates';
 
 const BASE = 'https://api.pluggy.ai';
@@ -103,7 +104,32 @@ async function fetchTransactions(accountId: string, from: string, apiKey: string
   return out;
 }
 
-export type SyncResult = { accounts: number; newTx: number; warnings: string[] };
+/** Busca as aplicações de um banco. Devolve null se o banco não libera investimentos. */
+async function fetchInvestments(itemId: string, bankName: string, apiKey: string): Promise<Investment[] | null> {
+  const out: Investment[] = [];
+  const now = new Date().toISOString();
+  let page = 1;
+  let totalPages = 1;
+  try {
+    do {
+      const data: { results: any[]; totalPages: number } = await get(
+        `/investments?itemId=${itemId}&pageSize=500&page=${page}`, apiKey);
+      for (const raw of data.results || []) {
+        const inv = mapInvestment(raw, itemId, bankName, now);
+        if (inv) out.push(inv);
+      }
+      totalPages = data.totalPages || 1;
+      page++;
+    } while (page <= totalPages && page < 20);
+  } catch (e: any) {
+    // 400/403/404: esse banco (ou o Meu Pluggy) não entrega investimentos. Não é erro grave.
+    if ([400, 403, 404].includes(e?.status)) return null;
+    throw e;
+  }
+  return out;
+}
+
+export type SyncResult = { accounts: number; newTx: number; investments: number; warnings: string[] };
 
 export async function syncAll(): Promise<SyncResult> {
   const itemIds = await getItemIds();
@@ -115,6 +141,7 @@ export async function syncAll(): Promise<SyncResult> {
   const warnings: string[] = [];
   let accounts = 0;
   let newTx = 0;
+  let investments = 0;
 
   for (const itemId of itemIds) {
     let bankName = 'Banco';
@@ -157,10 +184,20 @@ export async function syncAll(): Promise<SyncResult> {
       const txs = await fetchTransactions(String(a.id), from, apiKey);
       newTx += await upsertTransactions(txs);
     }
+
+    try {
+      const invs = await fetchInvestments(itemId, bankName, apiKey);
+      if (invs) {
+        await replaceInvestments(itemId, invs);
+        investments += invs.length;
+      }
+    } catch (e: any) {
+      warnings.push(`${bankName}: não deu para ler os investimentos agora (${String(e?.message ?? e).slice(0, 80)}).`);
+    }
   }
 
   await setSetting('last_sync_date', todayYmd());
   await setSetting('last_sync_at', new Date().toISOString());
   await setSetting('last_sync_warnings', JSON.stringify(warnings));
-  return { accounts, newTx, warnings };
+  return { accounts, newTx, investments, warnings };
 }

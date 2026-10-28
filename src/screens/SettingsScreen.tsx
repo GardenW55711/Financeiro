@@ -83,7 +83,7 @@ export default function SettingsScreen() {
     try {
       const r = await syncAll();
       setWarnings(r.warnings);
-      Alert.alert('Tudo certo!', `${r.accounts} conta(s) lidas e ${r.newTx} lançamento(s) novo(s).`);
+      Alert.alert('Tudo certo!', `${r.accounts} conta(s) lidas, ${r.newTx} lançamento(s) novo(s) e ${r.investments} investimento(s).`);
     } catch (e: any) {
       Alert.alert('Não deu para sincronizar', String(e?.message ?? e));
     } finally {

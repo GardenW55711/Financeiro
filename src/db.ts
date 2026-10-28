@@ -6,6 +6,7 @@ import { Category, DEFAULT_CATEGORIES, guessCategory, matchRule, Rule } from './
 import { Bill, BillManual } from './lib/bills';
 import { DEFAULT_PAY_SETTINGS, PaySettings } from './lib/paydays';
 import { rulePattern } from './lib/format';
+import { Investment } from './lib/investments';
 
 let dbPromise: Promise<SQLite.SQLiteDatabase> | null = null;
 
@@ -45,6 +46,10 @@ async function init(): Promise<SQLite.SQLiteDatabase> {
       id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, category_id TEXT,
       amount REAL NOT NULL DEFAULT 0, variable INTEGER NOT NULL DEFAULT 0, due_day INTEGER NOT NULL,
       cycle TEXT NOT NULL, keyword TEXT NOT NULL DEFAULT '', account_id TEXT, active INTEGER NOT NULL DEFAULT 1
+    );
+    CREATE TABLE IF NOT EXISTS investments (
+      id TEXT PRIMARY KEY NOT NULL, item_id TEXT NOT NULL, bank_name TEXT, name TEXT NOT NULL, type TEXT NOT NULL,
+      subtype TEXT, balance REAL NOT NULL DEFAULT 0, profit REAL, due_date TEXT, rate TEXT, updated_at TEXT
     );
     CREATE TABLE IF NOT EXISTS bill_manual (
       bill_id INTEGER NOT NULL, ym TEXT NOT NULL, paid INTEGER NOT NULL, PRIMARY KEY (bill_id, ym)
@@ -154,11 +159,34 @@ export async function listAccounts(): Promise<Account[]> {
   return db.getAllAsync<Account>('SELECT * FROM accounts ORDER BY type, bank_name, name');
 }
 
-export function accountLabel(a: Pick<Account, 'type' | 'name' | 'number' | 'bank_name'>): string {
+export function accountLabel(a: Pick<Account, 'type' | 'name' | 'number' | 'bank_name'> & { subtype?: string | null }): string {
   const tail = a.number ? ` ••${a.number.replace(/\D/g, '').slice(-4)}` : '';
   if (a.type === 'CREDIT') return `Crédito${tail}`;
   if (a.type === 'MANUAL') return 'Manual';
+  if (a.subtype === 'SAVINGS_ACCOUNT') return `Poupança${tail}`;
   return `Conta${tail}`;
+}
+
+// ---------- Investimentos ----------
+
+/** Troca os investimentos de um banco pela lista nova (o que foi resgatado some). */
+export async function replaceInvestments(itemId: string, list: Investment[]): Promise<void> {
+  const db = await getDb();
+  await db.withTransactionAsync(async () => {
+    await db.runAsync('DELETE FROM investments WHERE item_id = ?', [itemId]);
+    for (const i of list) {
+      await db.runAsync(
+        `INSERT OR REPLACE INTO investments (id, item_id, bank_name, name, type, subtype, balance, profit, due_date, rate, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [i.id, i.item_id, i.bank_name, i.name, i.type, i.subtype, i.balance, i.profit, i.due_date, i.rate, i.updated_at],
+      );
+    }
+  });
+}
+
+export async function listInvestments(): Promise<Investment[]> {
+  const db = await getDb();
+  return db.getAllAsync<Investment>('SELECT * FROM investments ORDER BY balance DESC');
 }
 
 // ---------- Lançamentos ----------
@@ -378,6 +406,6 @@ export async function wipeAll(): Promise<void> {
   const db = await getDb();
   await db.execAsync(`
     DELETE FROM transactions; DELETE FROM tx_meta; DELETE FROM accounts; DELETE FROM rules;
-    DELETE FROM bills; DELETE FROM bill_manual; DELETE FROM settings;
+    DELETE FROM bills; DELETE FROM bill_manual; DELETE FROM settings; DELETE FROM investments;
   `);
 }

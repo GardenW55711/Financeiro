@@ -1,8 +1,9 @@
 // Junta tudo que uma tela precisa para um mês, num só lugar.
-import { Account, getPaySettings, listAccounts, listBillManual, listBills, listCategories, listTransactions, Tx } from './db';
+import { Account, getPaySettings, listAccounts, listInvestments, listBillManual, listBills, listCategories, listTransactions, Tx } from './db';
 import { addDays, addMonths, monthEnd, monthStart, ymKey, YM } from './lib/dates';
 import { Bill, billStatus, BillManual, BillStatus } from './lib/bills';
 import { Category } from './lib/categories';
+import { Investment } from './lib/investments';
 import { monthPeriods, MonthPeriods, PaySettings } from './lib/paydays';
 
 export type MonthData = {
@@ -13,14 +14,15 @@ export type MonthData = {
   cats: Category[];
   excluded: Set<string>;
   accounts: Account[];
+  investments: Investment[];
   txs: Tx[]; // janela: mês anterior até o fim do mês seguinte
   bills: Bill[];
   manual: BillManual[];
 };
 
 export async function loadMonth(ym: YM): Promise<MonthData> {
-  const [settings, cats, accounts, bills, manual] = await Promise.all([
-    getPaySettings(), listCategories(), listAccounts(), listBills(), listBillManual(),
+  const [settings, cats, accounts, bills, manual, investments] = await Promise.all([
+    getPaySettings(), listCategories(), listAccounts(), listBills(), listBillManual(), listInvestments(),
   ]);
   const from = addDays(monthStart(addMonths(ym, -1)), -20);
   const to = addDays(monthEnd(addMonths(ym, 1)), 10);
@@ -33,6 +35,7 @@ export async function loadMonth(ym: YM): Promise<MonthData> {
     cats,
     excluded: new Set(cats.filter((c) => c.excluded).map((c) => c.id)),
     accounts,
+    investments,
     txs,
     bills,
     manual,
