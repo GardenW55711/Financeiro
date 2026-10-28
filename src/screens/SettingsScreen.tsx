@@ -103,8 +103,11 @@ export default function SettingsScreen() {
           { text: 'Atualizar', onPress: () => downloadAndInstall(info) },
         ]);
       }
-    } catch {
-      Alert.alert('Sem conexão', 'Não consegui consultar o GitHub agora. Tente de novo mais tarde.');
+    } catch (e: any) {
+      Alert.alert('Não consegui consultar o GitHub', `${String(e?.message ?? e)}\n\nVocê também pode baixar a versão nova pelo navegador.`, [
+        { text: 'Fechar', style: 'cancel' },
+        { text: 'Abrir no navegador', onPress: () => Linking.openURL('https://github.com/GardenW55711/Financeiro/releases/latest') },
+      ]);
     } finally {
       setChecking(false);
     }
