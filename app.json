@@ -1,0 +1,32 @@
+{
+  "expo": {
+    "name": "Financeiro",
+    "slug": "financeiro",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#F4F3EE"
+    },
+    "android": {
+      "package": "com.gardenw55711.financeiro",
+      "versionCode": 1,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0E6B57"
+      },
+      "edgeToEdgeEnabled": true,
+      "permissions": [
+        "REQUEST_INSTALL_PACKAGES"
+      ]
+    },
+    "plugins": [
+      "expo-sqlite",
+      "expo-secure-store"
+    ]
+  }
+}

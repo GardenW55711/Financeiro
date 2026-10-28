@@ -1,0 +1,77 @@
+# Gera o APK automaticamente no GitHub a cada envio para a branch main.
+# O arquivo final aparece em "Releases" do repositório, pronto para baixar no celular.
+name: Gerar APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-apk
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Baixar o código
+        uses: actions/checkout@v4
+
+      - name: Instalar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Instalar Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Instalar dependências
+        run: |
+          npm install --no-audit --no-fund
+          npx expo install --fix
+
+      - name: Conferir tipos (TypeScript)
+        run: npx tsc --noEmit
+
+      - name: Rodar testes
+        run: npm test
+
+      - name: Definir número da versão
+        run: |
+          node -e "const f='app.json';const j=require('./'+f);j.expo.android.versionCode=Number(process.env.GITHUB_RUN_NUMBER);j.expo.version='1.0.'+process.env.GITHUB_RUN_NUMBER;require('fs').writeFileSync(f,JSON.stringify(j,null,2));"
+
+      - name: Gerar projeto Android
+        run: npx expo prebuild --platform android --no-install --clean
+
+      - name: Compilar APK
+        working-directory: android
+        run: ./gradlew assembleRelease --no-daemon -PreactNativeArchitectures=arm64-v8a,armeabi-v7a
+
+      - name: Renomear APK
+        run: cp android/app/build/outputs/apk/release/app-release.apk financeiro-v1.0.${{ github.run_number }}.apk
+
+      - name: Guardar APK no workflow
+        uses: actions/upload-artifact@v4
+        with:
+          name: financeiro-apk
+          path: financeiro-v1.0.${{ github.run_number }}.apk
+
+      - name: Publicar em Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: Financeiro v1.0.${{ github.run_number }}
+          body: |
+            ${{ github.event.head_commit.message }}
+
+            APK gerado automaticamente a partir do commit ${{ github.sha }}.
+            Baixe o arquivo .apk abaixo no celular Android para instalar ou atualizar.
+          files: financeiro-v1.0.${{ github.run_number }}.apk
