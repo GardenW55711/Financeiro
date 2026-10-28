@@ -48,6 +48,16 @@ jobs:
         run: |
           node -e "const f='app.json';const j=require('./'+f);j.expo.android.versionCode=Number(process.env.GITHUB_RUN_NUMBER);j.expo.version='1.0.'+process.env.GITHUB_RUN_NUMBER;require('fs').writeFileSync(f,JSON.stringify(j,null,2));"
 
+      - name: Diagnóstico de versões
+        run: |
+          {
+            npm ls expo-modules-autolinking expo-modules-core expo 2>&1 | head -40
+            echo "---"
+            node -e "const {execSync}=require('child_process');const j=JSON.parse(execSync('npx expo-modules-autolinking resolve -p android --json').toString());j.modules.forEach((m,i)=>console.log(i,m.packageName,m.packageVersion,JSON.stringify((m.projects||[]).map(p=>p.publication||null))))" 2>&1 | head -40
+          } > diag.txt || true
+          msg=$(head -c 6000 diag.txt | sed 's/%/%25/g' | sed ':a;N;$!ba;s/\r//g;s/\n/%0A/g')
+          echo "::warning title=Versões::${msg}"
+
       - name: Gerar projeto Android
         run: npx expo prebuild --platform android --no-install --clean
 

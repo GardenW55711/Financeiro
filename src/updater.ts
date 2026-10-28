@@ -8,7 +8,7 @@ import * as IntentLauncher from 'expo-intent-launcher';
 import { Linking } from 'react-native';
 import { compareVersions } from './lib/version';
 
-export const REPO = 'GardenW55711/financeiro';
+export const REPO = 'GardenW55711/Financeiro';
 
 export type UpdateInfo = {
   version: string;
