@@ -5,8 +5,8 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { Card, Chip, Field, H2, Loading, Notice, PrimaryButton, RowDivider, Screen, Segmented, SwitchRow, TextButton, Title, s as ui } from '../components/ui';
 import { C } from '../theme';
 import {
-  addCategory, deleteCategory, deleteRule, getItemIds, getPaySettings, getSetting, listCategories, listRules,
-  setItemIds, setPaySettings, wipeAll,
+  addCategory, applyTransferDetection, deleteCategory, deleteRule, getItemIds, getPaySettings, getSetting, getTransferSettings,
+  listCategories, listRules, setItemIds, setPaySettings, setTransferSettings, suggestOwnName, TransferSettings, wipeAll,
 } from '../db';
 import { clearCredentials, getClientId, hasSecret, saveCredentials, syncAll } from '../pluggy';
 import { Category, CATEGORY_COLORS, DEFAULT_CATEGORIES, Rule } from '../lib/categories';
@@ -30,6 +30,10 @@ export default function SettingsScreen() {
   const [syncing, setSyncing] = useState(false);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [checking, setChecking] = useState(false);
+  const [tr, setTr] = useState<TransferSettings>({ enabled: true, names: [], docs: [] });
+  const [names, setNames] = useState('');
+  const [nameHint, setNameHint] = useState<string | null>(null);
+  const [detecting, setDetecting] = useState(false);
   const [brapi, setBrapi] = useState('');
   const [brapiSaved, setBrapiSaved] = useState(false);
   const [testingBrapi, setTestingBrapi] = useState(false);
@@ -46,6 +50,10 @@ export default function SettingsScreen() {
     setRules(rs);
     try { setWarnings(w ? JSON.parse(w) : []); } catch { setWarnings([]); }
     setBrapiSaved(!!(await getBrapiToken()));
+    const t = await getTransferSettings();
+    setTr(t);
+    setNames(t.names.join(', '));
+    setNameHint(await suggestOwnName());
     setLoaded(true);
   }, []);
   useFocusEffect(useCallback(() => { load(); }, [load]));
@@ -93,6 +101,28 @@ export default function SettingsScreen() {
       Alert.alert('Não deu para sincronizar', String(e?.message ?? e));
     } finally {
       setSyncing(false);
+    }
+  };
+
+  const saveTransfers = async (next: TransferSettings) => {
+    setTr(next);
+    await setTransferSettings(next);
+  };
+
+  const runDetection = async () => {
+    setDetecting(true);
+    try {
+      const list = names.split(/[,;\n]/).map((n) => n.trim()).filter((n) => n.split(/\s+/).length >= 2 || n.length >= 4);
+      const next = { ...tr, names: list };
+      await saveTransfers(next);
+      const n = await applyTransferDetection();
+      Alert.alert('Pronto', n
+        ? `${n} lançamento(s) reconhecido(s) como transferência entre suas contas. Eles não contam mais como gasto.`
+        : 'Não encontrei transferências entre suas contas.');
+    } catch (e: any) {
+      Alert.alert('Não deu certo', String(e?.message ?? e));
+    } finally {
+      setDetecting(false);
     }
   };
 
@@ -220,6 +250,37 @@ export default function SettingsScreen() {
         <PrimaryButton title="Testar e sincronizar agora" onPress={sync} loading={syncing} />
       </Card>
       {warnings.map((w) => <Notice key={w} title="Atenção" text={w} />)}
+
+      <H2>Transferências entre minhas contas</H2>
+      <Card style={{ gap: 12 }}>
+        <Text style={ui.hint}>
+          Dinheiro que sai de uma conta sua e entra em outra conta sua não é gasto. O app reconhece sozinho quando:
+          o CPF do outro lado é o seu, o banco marca como "mesma titularidade", o mesmo valor sai de uma conta e entra
+          em outra sua em até 3 dias, é aplicação/resgate de caixinha ou investimento, ou o Pix tem o seu nome.
+        </Text>
+        <SwitchRow
+          label="Reconhecer automaticamente"
+          sub="Esses lançamentos vão para a categoria “Entre minhas contas”, que fica fora do gráfico."
+          value={tr.enabled}
+          onChange={(v) => saveTransfers({ ...tr, enabled: v })}
+        />
+        <Field
+          label="Seu nome como aparece no extrato"
+          optional
+          value={names}
+          onChangeText={setNames}
+          autoCapitalize="words"
+          placeholder={nameHint ?? 'Ex.: Eder Almeida'}
+          hint="Ajuda a reconhecer Pix para você mesmo. Se tiver mais de um jeito, separe por vírgula."
+        />
+        {nameHint && !names.trim() ? (
+          <TextButton title={`Usar “${nameHint}”`} color={C.green} onPress={() => setNames(nameHint)} />
+        ) : null}
+        <PrimaryButton title="Salvar e reconhecer agora" onPress={runDetection} loading={detecting} />
+        <Text style={ui.hint}>
+          Errou algum? Abra o lançamento e toque em “Não é transferência minha”. O app não muda mais esse lançamento.
+        </Text>
+      </Card>
 
       <H2>Dados da bolsa (brapi)</H2>
       <Card style={{ gap: 12 }}>

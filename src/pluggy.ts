@@ -2,9 +2,10 @@
 // As chaves ficam no "cofre" do celular (SecureStore) e nunca no código.
 
 import * as SecureStore from 'expo-secure-store';
-import { getItemIds, getSetting, replaceInvestments, setSetting, upsertAccount, upsertTransactions, TxBase } from './db';
+import { applyTransferDetection, getItemIds, getSetting, replaceInvestments, setSetting, upsertAccount, upsertTransactions, TxBase } from './db';
 import { Investment, mapInvestment } from './lib/investments';
 import { bankOfAccount, bankOfInvestment } from './lib/banks';
+import { digits } from './lib/transfers';
 import { addDays, todayYmd } from './lib/dates';
 
 const BASE = 'https://api.pluggy.ai';
@@ -72,7 +73,18 @@ function mapTx(t: any, accountId: string): TxBase {
     installment_number: t.creditCardMetadata?.installmentNumber ?? null,
     total_installments: t.creditCardMetadata?.totalInstallments ?? null,
     source: 'pluggy',
+    payer_doc: digits(t.paymentData?.payer?.documentNumber?.value),
+    receiver_doc: digits(t.paymentData?.receiver?.documentNumber?.value),
+    counterpart: (t.type === 'CREDIT' ? t.paymentData?.payer?.name : t.paymentData?.receiver?.name) ?? null,
+    same_owner: sameOwner(t) ? 1 : 0,
   };
+}
+
+/** A própria transação mostra que quem pagou e quem recebeu têm o mesmo CPF? */
+function sameOwner(t: any): boolean {
+  const a = digits(t.paymentData?.payer?.documentNumber?.value);
+  const b = digits(t.paymentData?.receiver?.documentNumber?.value);
+  return !!a && a === b;
 }
 
 /** Busca todos os lançamentos de uma conta desde `from`, página por página. */
@@ -130,7 +142,7 @@ async function fetchInvestments(itemId: string, bankName: string, apiKey: string
   return out;
 }
 
-export type SyncResult = { accounts: number; newTx: number; investments: number; warnings: string[] };
+export type SyncResult = { accounts: number; newTx: number; investments: number; transfers: number; warnings: string[] };
 
 export async function syncAll(): Promise<SyncResult> {
   const itemIds = await getItemIds();
@@ -138,7 +150,10 @@ export async function syncAll(): Promise<SyncResult> {
   const apiKey = await auth();
   const last = await getSetting('last_sync_date');
   // Primeira vez: 6 meses para trás. Depois: desde 10 dias antes da última sincronização.
-  const from = last ? addDays(last, -10) : addDays(todayYmd(), -180);
+  // Na primeira sincronização desta versão, busca 6 meses de novo para pegar os dados de CPF
+  // de quem pagou/recebeu (usados para reconhecer transferências entre suas contas).
+  const refetched = await getSetting('refetch_transfer_data');
+  const from = last && refetched ? addDays(last, -10) : addDays(todayYmd(), -180);
   const warnings: string[] = [];
   let accounts = 0;
   let newTx = 0;
@@ -197,8 +212,17 @@ export async function syncAll(): Promise<SyncResult> {
     }
   }
 
+  // Marca as transferências entre suas contas (não contam como gasto)
+  let transfers = 0;
+  try {
+    transfers = await applyTransferDetection();
+  } catch (e: any) {
+    warnings.push(`Não deu para reconhecer as transferências entre contas agora (${String(e?.message ?? e).slice(0, 80)}).`);
+  }
+
+  await setSetting('refetch_transfer_data', '1');
   await setSetting('last_sync_date', todayYmd());
   await setSetting('last_sync_at', new Date().toISOString());
   await setSetting('last_sync_warnings', JSON.stringify(warnings));
-  return { accounts, newTx, investments, warnings };
+  return { accounts, newTx, investments, transfers, warnings };
 }

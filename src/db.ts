@@ -7,6 +7,7 @@ import { Bill, BillManual } from './lib/bills';
 import { DEFAULT_PAY_SETTINGS, PaySettings } from './lib/paydays';
 import { rulePattern } from './lib/format';
 import { Investment } from './lib/investments';
+import { detectTransfers, guessOwnDocs, TransferReason } from './lib/transfers';
 
 let dbPromise: Promise<SQLite.SQLiteDatabase> | null = null;
 
@@ -64,6 +65,20 @@ async function init(): Promise<SQLite.SQLiteDatabase> {
     ['purchase_date', 'TEXT'], ['issuer', 'TEXT'], ['index_type', 'TEXT'], ['source', "TEXT NOT NULL DEFAULT 'pluggy'"],
   ];
   for (const [c, t] of extra) if (!have.has(c)) await db.execAsync(`ALTER TABLE investments ADD COLUMN ${c} ${t}`);
+  // Colunas para reconhecer transferências entre suas contas
+  const txCols = new Set((await db.getAllAsync<{ name: string }>('PRAGMA table_info(transactions)')).map((c) => c.name));
+  for (const [c, t] of [['payer_doc', 'TEXT'], ['receiver_doc', 'TEXT'], ['counterpart', 'TEXT'], ['same_owner', 'INTEGER']] as const) {
+    if (!txCols.has(c)) await db.execAsync(`ALTER TABLE transactions ADD COLUMN ${c} ${t}`);
+  }
+  const metaCols = new Set((await db.getAllAsync<{ name: string }>('PRAGMA table_info(tx_meta)')).map((c) => c.name));
+  // manual_cat = 1 quando VOCÊ escolheu a categoria (o app não troca mais sozinho)
+  // transfer_reason = por que o app achou que é transferência entre suas contas
+  for (const [c, t] of [['manual_cat', 'INTEGER NOT NULL DEFAULT 0'], ['transfer_reason', 'TEXT']] as const) {
+    if (!metaCols.has(c)) await db.execAsync(`ALTER TABLE tx_meta ADD COLUMN ${c} ${t}`);
+  }
+  await db.runAsync(
+    `INSERT OR IGNORE INTO categories (id, name, color, excluded, sort) VALUES ('transferencia', 'Entre minhas contas', '#9AA0A6', 1, 91)`,
+  );
   await db.execAsync('CREATE TABLE IF NOT EXISTS market_cache (symbol TEXT PRIMARY KEY NOT NULL, json TEXT NOT NULL, fetched_at TEXT NOT NULL)');
 
   const row = await db.getFirstAsync<{ n: number }>('SELECT COUNT(*) AS n FROM categories');
@@ -265,10 +280,16 @@ export type Tx = {
   note: string | null;
   display_name: string | null;
   cycle_override: string | null;
+  payer_doc?: string | null;
+  receiver_doc?: string | null;
+  counterpart?: string | null;
+  same_owner?: number | null;
+  manual_cat?: number;
+  transfer_reason?: string | null;
 };
 
 export type TxBase = Pick<Tx, 'id' | 'account_id' | 'date' | 'description' | 'amount' | 'type' | 'pluggy_category' |
-  'installment_number' | 'total_installments' | 'source'>;
+  'installment_number' | 'total_installments' | 'source' | 'payer_doc' | 'receiver_doc' | 'counterpart' | 'same_owner'>;
 
 export function parseTags(json: string | null | undefined): string[] {
   try {
@@ -289,16 +310,18 @@ export async function upsertTransactions(list: TxBase[]): Promise<number> {
     for (const t of list) {
       await db.runAsync(
         `INSERT OR REPLACE INTO transactions (id, account_id, date, description, amount, type, pluggy_category,
-          installment_number, total_installments, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          installment_number, total_installments, source, payer_doc, receiver_doc, counterpart, same_owner)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [t.id, t.account_id, t.date, t.description, t.amount, t.type, t.pluggy_category,
-          t.installment_number, t.total_installments, t.source],
+          t.installment_number, t.total_installments, t.source, t.payer_doc ?? null, t.receiver_doc ?? null,
+          t.counterpart ?? null, t.same_owner ?? null],
       );
       const meta = await db.getFirstAsync<{ tx_id: string }>('SELECT tx_id FROM tx_meta WHERE tx_id = ?', [t.id]);
       if (!meta) {
         created++;
         const rule = matchRule(rules, t.description);
         const cat = rule?.category_id ?? (t.type === 'DEBIT' ? guessCategory(t.pluggy_category, t.description) : null);
-        await db.runAsync('INSERT INTO tx_meta (tx_id, category_id, tags) VALUES (?, ?, ?)', [t.id, cat, rule?.tags ?? '[]']);
+        await db.runAsync('INSERT INTO tx_meta (tx_id, category_id, tags, manual_cat) VALUES (?, ?, ?, ?)', [t.id, cat, rule?.tags ?? '[]', rule ? 1 : 0]);
       }
     }
   });
@@ -316,7 +339,8 @@ export async function listTransactions(f: TxFilter): Promise<Tx[]> {
     params.push(f.accountId);
   }
   return db.getAllAsync<Tx>(
-    `SELECT t.*, m.category_id, COALESCE(m.tags, '[]') AS tags, m.note, m.display_name, m.cycle_override
+    `SELECT t.*, m.category_id, COALESCE(m.tags, '[]') AS tags, m.note, m.display_name, m.cycle_override,
+       COALESCE(m.manual_cat, 0) AS manual_cat, m.transfer_reason
      FROM transactions t LEFT JOIN tx_meta m ON m.tx_id = t.id
      WHERE ${where} ORDER BY t.date DESC, t.id`,
     params,
@@ -326,7 +350,8 @@ export async function listTransactions(f: TxFilter): Promise<Tx[]> {
 export async function getTransaction(id: string): Promise<Tx | null> {
   const db = await getDb();
   return db.getFirstAsync<Tx>(
-    `SELECT t.*, m.category_id, COALESCE(m.tags, '[]') AS tags, m.note, m.display_name, m.cycle_override
+    `SELECT t.*, m.category_id, COALESCE(m.tags, '[]') AS tags, m.note, m.display_name, m.cycle_override,
+       COALESCE(m.manual_cat, 0) AS manual_cat, m.transfer_reason
      FROM transactions t LEFT JOIN tx_meta m ON m.tx_id = t.id WHERE t.id = ?`,
     [id],
   );
@@ -334,11 +359,101 @@ export async function getTransaction(id: string): Promise<Tx | null> {
 
 export type TxMeta = { category_id: string | null; tags: string[]; note: string | null; display_name: string | null; cycle_override: string | null };
 
+/** Salva o que você editou. Se a categoria mudou, ela vira "sua" e o app não troca mais sozinho. */
 export async function saveMeta(txId: string, m: TxMeta): Promise<void> {
   const db = await getDb();
+  const prev = await db.getFirstAsync<{ category_id: string | null; manual_cat: number; transfer_reason: string | null }>(
+    'SELECT category_id, COALESCE(manual_cat, 0) AS manual_cat, transfer_reason FROM tx_meta WHERE tx_id = ?', [txId]);
+  const changed = (prev?.category_id ?? null) !== m.category_id;
+  const manualCat = changed ? 1 : prev?.manual_cat ?? 0;
   await db.runAsync(
-    `INSERT OR REPLACE INTO tx_meta (tx_id, category_id, tags, note, display_name, cycle_override) VALUES (?, ?, ?, ?, ?, ?)`,
-    [txId, m.category_id, JSON.stringify(m.tags), m.note, m.display_name, m.cycle_override],
+    `INSERT OR REPLACE INTO tx_meta (tx_id, category_id, tags, note, display_name, cycle_override, manual_cat, transfer_reason)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [txId, m.category_id, JSON.stringify(m.tags), m.note, m.display_name, m.cycle_override, manualCat,
+      changed ? null : prev?.transfer_reason ?? null],
+  );
+}
+
+// ---------- Transferências entre suas contas ----------
+
+export type TransferSettings = { enabled: boolean; names: string[]; docs: string[] };
+
+export async function getTransferSettings(): Promise<TransferSettings> {
+  const raw = await getSetting('transfer_settings');
+  const def: TransferSettings = { enabled: true, names: [], docs: [] };
+  try {
+    return raw ? { ...def, ...JSON.parse(raw) } : def;
+  } catch {
+    return def;
+  }
+}
+
+export async function setTransferSettings(s: TransferSettings): Promise<void> {
+  await setSetting('transfer_settings', JSON.stringify(s));
+}
+
+/** Sugestão do seu nome: o nome que mais aparece como "quem pagou" nas suas saídas por Pix/TED. */
+export async function suggestOwnName(): Promise<string | null> {
+  const db = await getDb();
+  const r = await db.getFirstAsync<{ n: string; c: number }>(
+    `SELECT counterpart AS n, COUNT(*) AS c FROM transactions WHERE type = 'CREDIT' AND same_owner = 1 AND counterpart IS NOT NULL
+     GROUP BY counterpart ORDER BY c DESC LIMIT 1`);
+  return r?.n ?? null;
+}
+
+/**
+ * Procura transferências entre suas contas e marca como "Entre minhas contas" (fora do gráfico).
+ * Nunca mexe em lançamento cuja categoria você escolheu. Devolve quantos estão marcados agora.
+ */
+export async function applyTransferDetection(): Promise<number> {
+  const db = await getDb();
+  const st = await getTransferSettings();
+  const rows = await db.getAllAsync<{
+    id: string; account_id: string | null; date: string; description: string; amount: number; type: 'DEBIT' | 'CREDIT';
+    pluggy_category: string | null; payer_doc: string | null; receiver_doc: string | null; same_owner: number | null;
+    category_id: string | null; manual_cat: number; transfer_reason: string | null;
+  }>(
+    `SELECT t.id, t.account_id, t.date, t.description, t.amount, t.type, t.pluggy_category, t.payer_doc, t.receiver_doc,
+       t.same_owner, m.category_id, COALESCE(m.manual_cat, 0) AS manual_cat, m.transfer_reason
+     FROM transactions t LEFT JOIN tx_meta m ON m.tx_id = t.id
+     WHERE t.source = 'pluggy' AND t.date >= date('now', '-400 days')`,
+  );
+  const accs = await db.getAllAsync<{ id: string }>(`SELECT id FROM accounts WHERE type = 'BANK'`);
+  const docs = new Set([...st.docs, ...guessOwnDocs(rows)]);
+  const found = st.enabled
+    ? detectTransfers(rows, { ownAccountIds: new Set(accs.map((a) => a.id)), ownDocs: docs, ownNames: st.names })
+    : new Map<string, TransferReason>();
+
+  let marked = 0;
+  await db.withTransactionAsync(async () => {
+    for (const r of rows) {
+      if (r.manual_cat === 1) continue; // você decidiu: o app respeita
+      const reason = found.get(r.id);
+      if (reason) {
+        marked++;
+        if (r.category_id === 'transferencia' && r.transfer_reason === reason) continue;
+        await db.runAsync(
+          `INSERT INTO tx_meta (tx_id, category_id, tags, transfer_reason) VALUES (?, 'transferencia', '[]', ?)
+           ON CONFLICT(tx_id) DO UPDATE SET category_id = 'transferencia', transfer_reason = excluded.transfer_reason`,
+          [r.id, reason],
+        );
+      } else if (r.transfer_reason && r.category_id === 'transferencia') {
+        // Tinha sido marcado pelo app, mas não é mais (ex.: você tirou seu nome dos Ajustes)
+        const cat = r.type === 'DEBIT' ? guessCategory(r.pluggy_category, r.description) : null;
+        await db.runAsync('UPDATE tx_meta SET category_id = ?, transfer_reason = NULL WHERE tx_id = ?', [cat === 'transferencia' ? null : cat, r.id]);
+      }
+    }
+  });
+  return marked;
+}
+
+/** "Não é transferência": volta a contar como gasto/entrada normal, e o app não marca de novo. */
+export async function markNotTransfer(txId: string, categoryId: string | null): Promise<void> {
+  const db = await getDb();
+  await db.runAsync(
+    `INSERT INTO tx_meta (tx_id, category_id, tags, manual_cat, transfer_reason) VALUES (?, ?, '[]', 1, NULL)
+     ON CONFLICT(tx_id) DO UPDATE SET category_id = excluded.category_id, manual_cat = 1, transfer_reason = NULL`,
+    [txId, categoryId],
   );
 }
 
@@ -395,8 +510,8 @@ export async function addRuleFrom(description: string, categoryId: string | null
   for (const r of rows) {
     if (rulePattern(r.description).includes(pattern)) {
       await db.runAsync(
-        `INSERT INTO tx_meta (tx_id, category_id, tags) VALUES (?, ?, ?)
-         ON CONFLICT(tx_id) DO UPDATE SET category_id = excluded.category_id, tags = excluded.tags`,
+        `INSERT INTO tx_meta (tx_id, category_id, tags, manual_cat) VALUES (?, ?, ?, 1)
+         ON CONFLICT(tx_id) DO UPDATE SET category_id = excluded.category_id, tags = excluded.tags, manual_cat = 1`,
         [r.id, categoryId, JSON.stringify(tags)],
       );
       n++;

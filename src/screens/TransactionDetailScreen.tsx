@@ -7,8 +7,10 @@ import { C } from '../theme';
 import { RootStackParamList, useNav } from '../navigation';
 import {
   accountLabel, addRuleFrom, allTags, deleteTransaction, getPaySettings, getTransaction, insertManual, listAccounts,
-  listCategories, parseTags, saveMeta, Tx, updateManual,
+  listCategories, markNotTransfer, parseTags, saveMeta, Tx, updateManual,
 } from '../db';
+import { guessCategory } from '../lib/categories';
+import { REASON_TEXT, TransferReason } from '../lib/transfers';
 import { Category } from '../lib/categories';
 import { longDate, todayYmd } from '../lib/dates';
 import { cycleOf } from '../lib/paydays';
@@ -149,6 +151,31 @@ export default function TransactionDetailScreen() {
             Importado automaticamente via Pluggy
           </Text>
         </View>
+      ) : null}
+
+      {!manual && tx ? (
+        tx.category_id === 'transferencia' && categoryId === 'transferencia' ? (
+          <View style={{ backgroundColor: C.track, borderRadius: 16, padding: 14, gap: 8 }}>
+            <Text style={{ fontSize: 14, fontWeight: '800', color: C.ink }}>⇄ Transferência entre suas contas</Text>
+            <Text style={{ fontSize: 12, color: C.ink2, lineHeight: 17 }}>
+              Não conta como gasto nem como entrada.
+              {tx.transfer_reason && REASON_TEXT[tx.transfer_reason as TransferReason]
+                ? ` O app reconheceu porque ${REASON_TEXT[tx.transfer_reason as TransferReason]}.`
+                : ''}
+            </Text>
+            <TextButton
+              title="Não é transferência minha"
+              color={C.danger}
+              onPress={async () => {
+                const cat = tx.type === 'DEBIT' ? guessCategory(tx.pluggy_category, tx.description) : null;
+                await markNotTransfer(tx.id, cat === 'transferencia' ? null : cat);
+                nav.goBack();
+              }}
+            />
+          </View>
+        ) : categoryId !== 'transferencia' ? (
+          <TextButton title="⇄ Isto é transferência entre minhas contas" color={C.green} onPress={() => setCategoryId('transferencia')} />
+        ) : null
       ) : null}
 
       {!manual ? (

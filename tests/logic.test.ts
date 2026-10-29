@@ -168,3 +168,39 @@ test('preço justo e indicadores', () => {
   assert.ok(readStock(q).every((r) => r.verdict === 'bom'));
   assert.equal(readFii({ ...q, pvp: 1.4 }, 14).find((r) => r.key === 'pvp')!.verdict, 'atencao');
 });
+
+import { detectTransfers, guessOwnDocs, mentionsName, TxForTransfer } from '../src/lib/transfers';
+
+function tx(p: Partial<TxForTransfer>): TxForTransfer {
+  return { id: Math.random().toString(36), account_id: 'itau', date: '2026-10-10', description: 'Compra', amount: -50, type: 'DEBIT',
+    pluggy_category: null, payer_doc: null, receiver_doc: null, same_owner: null, ...p };
+}
+
+test('transferências entre minhas contas', () => {
+  const me = '12345678900';
+  const opts = { ownAccountIds: new Set(['itau', 'nubank']), ownDocs: new Set([me]), ownNames: ['Eder Almeida'] };
+  const pixOut = tx({ id: 'a', description: 'Pix enviado', amount: -500, date: '2026-10-10' });
+  const pixIn = tx({ id: 'b', account_id: 'nubank', description: 'Transferência recebida pelo Pix', amount: 500, type: 'CREDIT', date: '2026-10-11' });
+  const mercado = tx({ id: 'c', description: 'Supermercado Bom Preço', amount: -500, date: '2026-10-10' });
+  const amigo = tx({ id: 'd', description: 'Pix enviado João Silva', amount: -80, receiver_doc: '999.888.777-66' });
+  const cpf = tx({ id: 'e', description: 'TED', amount: -300, receiver_doc: '123.456.789-00' });
+  const nome = tx({ id: 'f', description: 'PIX ENVIADO EDER A ALMEIDA', amount: -70 });
+  const caixinha = tx({ id: 'g', account_id: 'nubank', description: 'Aplicação RDB', amount: -200 });
+  const pluggy = tx({ id: 'h', description: 'Transferência', amount: -40, pluggy_category: 'Same person transfer' });
+  const longe = tx({ id: 'i', account_id: 'nubank', description: 'Pix recebido', amount: 80, type: 'CREDIT', date: '2026-10-25' });
+  const r = detectTransfers([pixOut, pixIn, mercado, amigo, cpf, nome, caixinha, pluggy, longe], opts);
+  assert.equal(r.get('a'), 'par');
+  assert.equal(r.get('b'), 'par');
+  assert.equal(r.has('c'), false); // compra de verdade
+  assert.equal(r.has('d'), false); // Pix para outra pessoa é gasto
+  assert.equal(r.get('e'), 'cpf');
+  assert.equal(r.get('f'), 'nome');
+  assert.equal(r.get('g'), 'aplicacao');
+  assert.equal(r.get('h'), 'pluggy');
+  assert.equal(r.has('i'), false); // valor e data não batem
+  // mesma conta não forma par
+  const r2 = detectTransfers([tx({ id: 'x', description: 'Pix', amount: -10 }), tx({ id: 'y', description: 'Pix', amount: 10, type: 'CREDIT' })], opts);
+  assert.equal(r2.size, 0);
+  assert.equal(mentionsName('Pix para EDER', ['Eder Almeida']), false);
+  assert.deepEqual(guessOwnDocs([1, 2, 3].map(() => ({ type: 'DEBIT' as const, payer_doc: me, receiver_doc: null }))), [me]);
+});

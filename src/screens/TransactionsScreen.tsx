@@ -108,7 +108,8 @@ export default function TransactionsScreen() {
       {groups.length === 0 ? <Empty text={txs.length ? 'Nada encontrado com esses filtros.' : 'Nenhum lançamento neste mês. Sincronize no Início ou adicione um gasto no botão +.'} /> : null}
 
       {groups.map(([date, list]) => {
-        const out = list.filter((t) => t.type === 'DEBIT').reduce((a, t) => a + Math.abs(t.amount), 0);
+        // Soma do dia só com gastos de verdade (sem transferência entre suas contas nem fatura)
+        const out = list.filter((t) => t.type === 'DEBIT' && !catById.get(t.category_id ?? '')?.excluded).reduce((a, t) => a + Math.abs(t.amount), 0);
         return (
           <View key={date} style={{ gap: 8 }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 4 }}>
@@ -120,7 +121,8 @@ export default function TransactionsScreen() {
                 const c = t.category_id ? catById.get(t.category_id) : undefined;
                 const a = t.account_id ? accById.get(t.account_id) : undefined;
                 const tags = parseTags(t.tags);
-                const isIn = t.type === 'CREDIT';
+                const isMove = t.category_id === 'transferencia';
+                const isIn = t.type === 'CREDIT' && !isMove;
                 const none = !c && !isIn;
                 return (
                   <View key={t.id}>
@@ -132,14 +134,14 @@ export default function TransactionsScreen() {
                         borderWidth: none ? 1.5 : 0, borderStyle: 'dashed', borderColor: C.warn,
                       }}>
                         <Text style={{ fontWeight: '800', fontSize: 15, color: isIn ? C.greenDark : none ? C.warnDark : c?.color ?? C.ink }}>
-                          {isIn ? '+' : (c?.name ?? '?').charAt(0)}
+                          {isMove ? '⇄' : isIn ? '+' : (c?.name ?? '?').charAt(0)}
                         </Text>
                       </View>
                       <View style={{ flex: 1, gap: 5, minWidth: 0 }}>
                         <Text numberOfLines={1} style={{ fontSize: 14, fontWeight: '700', color: C.ink }}>{t.display_name || t.description}</Text>
                         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
                           <Text style={{ fontSize: 11, fontWeight: '800', color: none ? C.warnDark : C.ink2 }}>
-                            {isIn ? 'Entrada' : c?.name ?? 'Sem categoria'}
+                            {isMove ? 'Entre minhas contas' : isIn ? 'Entrada' : c?.name ?? 'Sem categoria'}
                           </Text>
                           {tags.map((tg) => (
                             <Text key={tg} style={{ fontSize: 11, fontWeight: '700', color: C.ink2, backgroundColor: C.track, paddingHorizontal: 7, paddingVertical: 2, borderRadius: 9 }}>{tg}</Text>
@@ -151,8 +153,8 @@ export default function TransactionsScreen() {
                         </View>
                         {t.note ? <Text style={{ fontSize: 12, color: C.ink2, fontStyle: 'italic' }}>“{t.note}”</Text> : null}
                       </View>
-                      <Text style={{ fontSize: 15, fontWeight: '800', color: isIn ? C.green : C.ink }}>
-                        {isIn ? '+ ' : '− '}{brl(Math.abs(t.amount))}
+                      <Text style={{ fontSize: 15, fontWeight: '800', color: isMove ? C.faint : isIn ? C.green : C.ink }}>
+                        {t.type === 'CREDIT' ? '+ ' : '− '}{brl(Math.abs(t.amount))}
                       </Text>
                     </Pressable>
                   </View>

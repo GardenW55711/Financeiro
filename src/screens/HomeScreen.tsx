@@ -46,7 +46,7 @@ export default function HomeScreen() {
     try {
       const r = await syncAll();
       const extra = r.warnings.length ? `\n\n${r.warnings.join('\n')}` : '';
-      Alert.alert('Sincronizado', `${r.accounts} conta(s) lidas, ${r.newTx} lançamento(s) novo(s), ${r.investments} investimento(s).${extra}`);
+      Alert.alert('Sincronizado', `${r.accounts} conta(s) lidas, ${r.newTx} lançamento(s) novo(s), ${r.investments} investimento(s), ${r.transfers} transferência(s) entre suas contas reconhecida(s).${extra}`);
       await load();
     } catch (e: any) {
       Alert.alert('Não deu para sincronizar', String(e?.message ?? e));
@@ -62,6 +62,8 @@ export default function HomeScreen() {
     const cur = spend.filter((t) => inPeriod(t, period, ym, data.periods, data.settings));
     const prev = spend.filter((t) => inPeriod(t, period, prevYm, data.prevPeriods, data.settings));
     const total = sum(cur);
+    // Transferências entre suas contas que ficaram de fora (só as saídas, para não contar duas vezes)
+    const moves = data.txs.filter((t) => t.type === 'DEBIT' && t.category_id === 'transferencia' && inPeriod(t, period, ym, data.periods, data.settings));
     const prevTotal = sum(prev);
     const cats = groupByCategory(cur, data.cats);
     const byAcc = new Map<string, number>();
@@ -78,7 +80,7 @@ export default function HomeScreen() {
     const bills = billsForMonth(data, ym).filter((b) => period === 'mes' || b.cycle === period);
     const uncategorized = data.txs.filter((t) => t.type === 'DEBIT' && !t.category_id && t.date >= data.periods.mes.from && t.date <= data.periods.mes.to).length;
     const range = period === 'mes' ? data.periods.mes : data.periods[period];
-    return { total, prevTotal, cats, accounts, bills, uncategorized, range };
+    return { total, prevTotal, cats, accounts, bills, uncategorized, range, moves: { count: moves.length, value: sum(moves) } };
   }, [data, period, ym]);
 
   if (!data || !view) return <Loading />;
@@ -146,6 +148,19 @@ export default function HomeScreen() {
             <View key={c.id} style={{ width: pw(pct(c.value, view.total)), backgroundColor: c.color, borderRightWidth: 2, borderRightColor: '#fff' }} />
           ))}
         </View>
+        {view.moves.count ? (
+          <Pressable
+            onPress={() => nav.navigate('Tabs', { screen: 'Lancamentos', params: { categoryId: 'transferencia', ym: ymKey(ym) } })}
+            accessibilityRole="button"
+            style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: C.bg, borderRadius: 12, padding: 12 }}
+          >
+            <Text style={{ fontSize: 16, color: C.muted }}>⇄</Text>
+            <Text style={{ flex: 1, fontSize: 12, color: C.ink2, lineHeight: 17 }}>
+              Não contei {brl(view.moves.value)} em {view.moves.count} transferência(s) entre suas contas.
+            </Text>
+            <Ionicons name="chevron-forward" size={16} color={C.faint} />
+          </Pressable>
+        ) : null}
         {view.bills.length ? (
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', backgroundColor: C.bg, borderRadius: 12, padding: 12 }}>
             <Text style={{ fontSize: 13, fontWeight: '600', color: C.ink }}>Contas fixas pagas</Text>

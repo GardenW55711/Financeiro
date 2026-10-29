@@ -96,8 +96,10 @@ export default function AccountsScreen() {
       {banks.length ? <H2>Contas correntes</H2> : null}
       {banks.map((a) => {
         const txs = inMonth.filter((t) => t.account_id === a.id);
-        const income = txs.filter((t) => t.type === 'CREDIT').reduce((s, t) => s + Math.abs(t.amount), 0);
-        const out = txs.filter((t) => t.type === 'DEBIT').reduce((s, t) => s + Math.abs(t.amount), 0);
+        // Transferências entre suas contas não contam como entrada nem saída
+        const real = txs.filter((t) => !(t.category_id && data.excluded.has(t.category_id)));
+        const income = real.filter((t) => t.type === 'CREDIT').reduce((s, t) => s + Math.abs(t.amount), 0);
+        const out = real.filter((t) => t.type === 'DEBIT').reduce((s, t) => s + Math.abs(t.amount), 0);
         return (
           <Card key={a.id} style={{ gap: 14 }}>
             <Pressable onPress={() => setEditing(a)} accessibilityHint="Trocar o nome do banco">
